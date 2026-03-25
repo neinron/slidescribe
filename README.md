@@ -1,13 +1,15 @@
 # SlideScribe
 
-SlideScribe is an Electron desktop app for turning lecture PDFs into structured Markdown with Gemini vision models. It combines a desktop queue manager, a configurable system prompt, resumable processing, live logs, and a side-by-side PDF versus Markdown comparison view in one app.
+SlideScribe is an Electron desktop app for turning PDFs with visuals, graphics, formulas, diagrams, and handwritten content into structured Markdown that LLMs can use as context. It combines a desktop queue manager, a configurable system prompt, resumable processing, live logs, and a side-by-side PDF versus Markdown comparison view in one app.
 
-The app keeps the conversion pipeline in Python and wraps it in a cleaner desktop workflow. Add one or more PDFs, choose a Gemini model, start a run, and SlideScribe writes the generated Markdown next to each source PDF.
+The app keeps the conversion pipeline in Python and wraps it in a cleaner desktop workflow. Add one or more PDFs, choose a Gemini model, start a run, and SlideScribe writes AI-ready Markdown next to each source PDF so the result can be reused in LLM chats, prompts, notes, or downstream workflows.
 
 ## What The App Does
 
 - Queues multiple PDFs for batch conversion
 - Uses Gemini models only for page-by-page PDF-to-Markdown conversion
+- Helps convert visually rich PDFs into AI-usable context for LLM tools
+- Preserves page structure in Markdown for diagrams, formulas, and handwritten material
 - Saves Markdown beside the original PDF as `<name>_llm_description.md`
 - Stores resumable progress data in `pdf_converter_progress/`
 - Lets you edit and reset the bundled system prompt
