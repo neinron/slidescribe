@@ -5,6 +5,8 @@
 node_modules/
 venv/
 dist-electron/
+dist-forge/
+out/
 .vscode/
 
 __pycache__/

@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Electron app for converting lecture PDFs into Markdown with Gemini vision models.",
   "productName": "SlideScribe",
+  "author": "Jaron Schurer",
   "main": "electron/main.js",
   "scripts": {
     "setup": "sh ./scripts/setup.sh",
     "start": "node electron/start.js",
     "dev": "nodemon",
+    "electron:package": "electron-forge package",
     "package": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -29,12 +31,15 @@
       "output": "dist-electron"
     }
   },
-  "devDependencies": {
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12",
+  "dependencies": {
     "katex": "^0.16.25",
     "marked": "^16.3.0",
-    "nodemon": "^3.1.10",
     "pdfjs-dist": "^5.4.149"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.8.1",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "nodemon": "^3.1.10"
   }
 }

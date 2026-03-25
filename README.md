@@ -55,6 +55,14 @@ npm start
 
 The Electron app will automatically use the repo-local virtual environment when it exists.
 
+Package the macOS app with Electron Forge:
+
+```bash
+npm run electron:package
+```
+
+On macOS, the Forge post-package step automatically moves the packaged app to `/Applications/SlideScribe.app`. If a previous copy exists there, it is replaced.
+
 ## Manual Setup
 
 If you do not want to use the helper script, the equivalent steps are:
@@ -72,6 +80,8 @@ cp .env.example .env
 - Markdown output is written next to the source PDF
 - Progress snapshots are written to `pdf_converter_progress/`
 - Existing progress can be reused when the PDF filename stem matches
+- `npm run electron:package` places the packaged macOS app at `/Applications/SlideScribe.app`
+- Forge packaging intermediates are written to `dist-forge/`
 
 ## Changes
 
