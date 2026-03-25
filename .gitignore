@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+venv/
+dist-electron/
+.vscode/
+
+__pycache__/
+*.pyc
+
+pdf_converter_progress/
+*_llm_description.md
+
+preview_page*.jpg
+.DS_Store

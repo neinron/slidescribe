@@ -1,0 +1,18 @@
+{
+  "watch": [
+    "electron",
+    "assets",
+    "backend",
+    "package.json"
+  ],
+  "ext": "js,mjs,json,css,html,svg,png",
+  "ignore": [
+    "dist-electron",
+    "node_modules",
+    "pdf_converter_progress",
+    "*.md"
+  ],
+  "exec": "node electron/start.js",
+  "signal": "SIGTERM",
+  "delay": "150"
+}

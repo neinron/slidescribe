@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SlideScribe</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="../../node_modules/katex/dist/katex.min.css" />
+  </head>
+  <body>
+    <div class="app-bg"></div>
+    <div class="shell">
+      <header class="topbar panel">
+        <div class="brand-card">
+          <img class="brand-icon" src="../../assets/icon.svg" alt="SlideScribe icon" />
+          <div>
+            <p class="eyebrow">Electron Desktop</p>
+            <h1>SlideScribe</h1>
+            <p class="brand-copy">Convert lecture PDFs into structured Markdown, inspect the output page by page, and tune the system prompt without leaving the app.</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="mini-stat">
+            <span class="mini-label">Queue</span>
+            <strong id="queue-count">0 PDFs</strong>
+          </div>
+          <div class="mini-stat">
+            <span class="mini-label">Run</span>
+            <strong id="run-state">Idle</strong>
+          </div>
+          <button id="theme-toggle" class="ghost icon-text" type="button">Light Mode</button>
+        </div>
+      </header>
+
+      <div class="content-grid">
+        <aside class="sidebar">
+          <section class="panel controls-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Queue Control</p>
+                <h2>Files And Run Settings</h2>
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="add-pdfs" class="primary">Add PDFs</button>
+              <button id="remove-selected" class="ghost">Remove Selected</button>
+              <button id="clear-queue" class="ghost danger">Clear Queue</button>
+            </div>
+            <label>
+              <span>Mode</span>
+              <select id="mode-select">
+                <option value="parallel">Parallel</option>
+                <option value="sequential">Sequential</option>
+              </select>
+            </label>
+            <label>
+              <span>Model</span>
+              <select id="model-select"></select>
+            </label>
+            <label>
+              <span>Max image budget in MB</span>
+              <input id="max-mb" type="number" min="0" step="1" />
+            </label>
+            <div class="button-row run-buttons">
+              <button id="start-run" class="primary wide">Start Conversion</button>
+              <button id="stop-run" class="ghost wide" disabled>Stop</button>
+            </div>
+            <p class="hint">Markdown is saved next to each PDF. Resume metadata remains in <code>pdf_converter_progress/</code>.</p>
+          </section>
+        </aside>
+
+        <main class="main-content">
+          <section id="prompt-card" class="panel prompt-panel">
+            <div class="panel-head prompt-card-header">
+              <div>
+                <p class="eyebrow">Prompt Control</p>
+                <h2>System Prompt</h2>
+              </div>
+              <div class="button-row summary-actions">
+                <button id="toggle-prompt" class="ghost" type="button" aria-expanded="true" aria-controls="prompt-body">Hide Prompt</button>
+                <button id="reset-prompt" class="ghost" type="button">Reset To Default</button>
+              </div>
+            </div>
+            <div id="prompt-body" class="prompt-body">
+              <textarea id="system-prompt" spellcheck="false" rows="8"></textarea>
+            </div>
+          </section>
+
+          <section class="panel queue-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Worklist</p>
+                <h2>Queued PDFs</h2>
+              </div>
+              <p id="selection-label" class="subtle">Every row includes copy, compare, and delete actions.</p>
+            </div>
+            <div id="queue-body" class="queue-list"></div>
+          </section>
+
+          <section class="panel log-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Run Output</p>
+                <h2>Activity Log</h2>
+              </div>
+              <div class="button-row compact-actions">
+                <button id="copy-logs" class="ghost" type="button">Copy All Logs</button>
+                <button id="clear-log" class="ghost" type="button">Clear Log</button>
+              </div>
+            </div>
+            <pre id="log-output"></pre>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="compare-modal" class="modal-backdrop hidden" aria-hidden="true">
+      <div class="modal-card panel" role="dialog" aria-modal="true" aria-labelledby="compare-title">
+        <div class="panel-head modal-head">
+          <div>
+            <p class="eyebrow">Comparison</p>
+            <h2 id="compare-title">PDF vs Markdown</h2>
+            <p id="compare-subtitle" class="subtle">Load a finished file to inspect each page side by side.</p>
+          </div>
+          <button id="close-compare" class="ghost" type="button">Close</button>
+        </div>
+        <div id="compare-status" class="compare-status subtle"></div>
+        <div id="compare-content" class="compare-content"></div>
+      </div>
+    </div>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>
