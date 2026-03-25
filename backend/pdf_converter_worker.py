@@ -39,6 +39,7 @@ IMAGE_DPI = max(72, int(os.getenv("IMAGE_DPI", "110")))
 PER_FILE_IN_FLIGHT = max(1, int(os.getenv("PER_FILE_IN_FLIGHT", "4")))
 MAX_RAW_TEXT_TOKENS = max(0, int(os.getenv("MAX_RAW_TEXT_TOKENS", "1200")))
 MAX_OUTPUT_TOKENS = max(400, int(os.getenv("MAX_OUTPUT_TOKENS", "1400")))
+MAX_CONTINUATION_ROUNDS = max(1, int(os.getenv("MAX_CONTINUATION_ROUNDS", "4")))
 SAVE_EVERY_PAGES = max(1, int(os.getenv("SAVE_EVERY_PAGES", "3")))
 MAX_WORKERS = os.cpu_count() or 4
 
@@ -141,6 +142,14 @@ def ensure_page_header(markdown: Optional[str], page_number: int) -> str:
     return f"{expected}\n\n{stripped}"
 
 
+def strip_duplicate_page_header(markdown: str, page_number: int) -> str:
+    expected = f"## Page {page_number}"
+    stripped = (markdown or "").lstrip()
+    if stripped.startswith(expected):
+        return stripped[len(expected):].lstrip()
+    return stripped
+
+
 def build_provider_request_kwargs(provider: str) -> dict[str, Any]:
     if provider != "gemini":
         return {}
@@ -199,6 +208,8 @@ async def describe_slide_async(
         },
     ]
 
+    assembled_parts: list[str] = []
+    continuation_round = 0
     errors = 0
     while True:
         try:
@@ -209,7 +220,8 @@ async def describe_slide_async(
                 timeout=120,
                 **build_provider_request_kwargs("gemini"),
             )
-            message = response.choices[0].message
+            choice = response.choices[0]
+            message = choice.message
             raw = message_content_to_text(message.content)
             if not raw.strip():
                 refusal = getattr(message, "refusal", None)
@@ -217,7 +229,45 @@ async def describe_slide_async(
                     raw = f"[unreadable]\n\nModel refusal: {refusal.strip()}"
                 else:
                     raw = "[unreadable]\n\nThe model returned an empty response."
-            return ensure_page_header(raw, page_number)
+            if continuation_round == 0:
+                assembled_parts.append(ensure_page_header(raw, page_number))
+            else:
+                assembled_parts.append(strip_duplicate_page_header(raw, page_number))
+
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason != "length":
+                return "\n".join(part.rstrip() for part in assembled_parts if part.strip()).strip()
+
+            continuation_round += 1
+            if continuation_round >= MAX_CONTINUATION_ROUNDS:
+                emit(
+                    "log",
+                    level="warn",
+                    message=(
+                        f"Reached continuation limit for page {page_number}; "
+                        "saving partial output. Increase MAX_OUTPUT_TOKENS or MAX_CONTINUATION_ROUNDS if needed."
+                    ),
+                )
+                return "\n".join(part.rstrip() for part in assembled_parts if part.strip()).strip()
+
+            emit(
+                "log",
+                level="warn",
+                message=f"Page {page_number} hit output limit; requesting continuation chunk {continuation_round + 1}.",
+            )
+            msgs.extend(
+                [
+                    {"role": "assistant", "content": raw},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Continue exactly where you left off. Do not restart, do not repeat earlier text, "
+                            "and do not add commentary. Output only the remaining Markdown for this same page."
+                        ),
+                    },
+                ]
+            )
+            errors = 0
         except (RateLimitError, APIError, APITimeoutError, APIConnectionError) as exc:
             errors += 1
             if errors > 10:

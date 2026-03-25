@@ -1,41 +1,41 @@
 :root {
   color-scheme: dark;
-  --bg: #08111d;
-  --bg-soft: #0c1625;
-  --panel: rgba(10, 20, 35, 0.82);
-  --panel-strong: rgba(8, 16, 28, 0.96);
-  --panel-solid: rgba(14, 24, 40, 0.98);
-  --panel-alt: rgba(18, 30, 49, 0.8);
-  --border: rgba(148, 163, 184, 0.18);
-  --text: #edf6ff;
-  --muted: #98adc2;
-  --accent: #3aa7ff;
-  --accent-2: #27d28c;
-  --danger: #f97393;
-  --shadow: 0 28px 80px rgba(2, 6, 23, 0.32);
+  --bg: #111315;
+  --bg-soft: #171a1d;
+  --panel: rgba(28, 31, 35, 0.88);
+  --panel-strong: rgba(24, 27, 31, 0.98);
+  --panel-solid: rgba(31, 35, 39, 0.98);
+  --panel-alt: rgba(36, 40, 45, 0.88);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f5f5f7;
+  --muted: #a1a1aa;
+  --accent: #8f949b;
+  --accent-2: #6f747b;
+  --danger: #d86464;
+  --shadow: 0 20px 56px rgba(0, 0, 0, 0.28);
   --radius-xl: 26px;
   --radius-lg: 20px;
   --radius-md: 16px;
   --radius-sm: 12px;
   --mono: "SF Mono", "JetBrains Mono", monospace;
-  --sans: "Avenir Next", "Segoe UI", sans-serif;
+  --sans: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 
 body[data-theme="light"] {
   color-scheme: light;
-  --bg: #eef4fb;
-  --bg-soft: #dfe9f5;
-  --panel: rgba(255, 255, 255, 0.82);
-  --panel-strong: rgba(248, 251, 255, 0.98);
+  --bg: #ececef;
+  --bg-soft: #e3e4e8;
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-strong: rgba(252, 252, 253, 0.98);
   --panel-solid: rgba(255, 255, 255, 0.98);
-  --panel-alt: rgba(238, 244, 251, 0.9);
-  --border: rgba(71, 85, 105, 0.14);
-  --text: #102033;
-  --muted: #58708a;
-  --accent: #0f84ff;
-  --accent-2: #06b57a;
-  --danger: #e3486e;
-  --shadow: 0 22px 70px rgba(111, 139, 176, 0.22);
+  --panel-alt: rgba(245, 245, 247, 0.92);
+  --border: rgba(17, 24, 39, 0.09);
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #6b7280;
+  --accent-2: #4b5563;
+  --danger: #c94b4b;
+  --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
 }
 
 * {
@@ -51,16 +51,15 @@ body {
 }
 
 body {
-  background: linear-gradient(160deg, var(--bg) 0%, var(--bg-soft) 100%);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);
 }
 
 .app-bg {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 30%),
-    radial-gradient(circle at 100% 10%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 28%),
-    radial-gradient(circle at 80% 90%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 26%);
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, white 4%, transparent), transparent 32%),
+    radial-gradient(circle at 100% 20%, color-mix(in srgb, black 8%, transparent), transparent 30%);
   pointer-events: none;
 }
 
@@ -97,14 +96,13 @@ body {
 }
 
 .panel,
-.brand-card,
 .queue-item,
 .modal-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(12px);
 }
 
 .panel {
@@ -112,35 +110,24 @@ body {
 }
 
 .topbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: stretch;
+  display: block;
 }
 
-.brand-card {
-  flex: 1;
-  padding: 18px;
+.topbar-copy {
   display: grid;
-  grid-template-columns: 62px 1fr;
-  gap: 14px;
-  align-items: center;
+  gap: 6px;
 }
 
-.brand-icon {
-  width: 62px;
-  height: 62px;
-}
-
-.topbar-actions {
-  display: flex;
+.status-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: stretch;
 }
 
 .mini-stat {
-  min-width: 122px;
-  padding: 12px 14px;
+  min-width: 0;
+  padding: 10px 12px;
   border-radius: var(--radius-lg);
   background: var(--panel-alt);
   border: 1px solid var(--border);
@@ -153,8 +140,8 @@ body {
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  font-size: 0.71rem;
   color: var(--accent);
 }
 
@@ -166,12 +153,14 @@ strong {
 }
 
 h1 {
-  font-size: 1.76rem;
-  line-height: 1;
+  font-size: 1.72rem;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
 }
 
 h2 {
-  font-size: 1.08rem;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
 }
 
 .brand-copy,
@@ -187,6 +176,10 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.panel-head > h2 {
+  font-weight: 650;
 }
 
 .controls-panel {
@@ -232,8 +225,8 @@ textarea {
 select:focus,
 input:focus,
 textarea:focus {
-  border-color: color-mix(in srgb, var(--accent) 72%, white);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 52%, white);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .button-row {
@@ -265,9 +258,9 @@ button:disabled {
 }
 
 button.primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #02111e;
-  font-weight: 700;
+  background: linear-gradient(180deg, #f3f4f6, #d1d5db);
+  color: #111827;
+  font-weight: 600;
 }
 
 button.ghost {
@@ -285,7 +278,7 @@ button.wide {
 }
 
 .icon-text {
-  min-width: 110px;
+  min-width: 0;
 }
 
 .prompt-panel {
@@ -335,13 +328,14 @@ button.wide {
 }
 
 .queue-item.selected {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, white 3%, var(--panel-solid));
 }
 
 .queue-main {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .queue-file-header {
@@ -356,10 +350,35 @@ button.wide {
   font-size: 0.96rem;
 }
 
+.queue-file-path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.file-path-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.79rem;
+}
+
 .file-path {
   color: var(--muted);
   font-size: 0.79rem;
   word-break: break-all;
+  min-width: 0;
+}
+
+.file-path.hidden {
+  display: none;
+}
+
+.file-path:hover {
+  color: var(--text);
 }
 
 .queue-meta {
@@ -381,11 +400,16 @@ button.wide {
   color: var(--text);
 }
 
+.queue-progress-wrap {
+  width: 100%;
+}
+
 .queue-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  align-self: start;
 }
 
 .icon-button {
@@ -417,7 +441,7 @@ button.wide {
 .progress-bar > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: linear-gradient(90deg, #d1d5db, #9ca3af);
 }
 
 .empty-state {

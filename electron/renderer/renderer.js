@@ -260,32 +260,68 @@ function renderQueue() {
     const main = document.createElement("div");
     main.className = "queue-main";
     const percent = Math.max(0, Math.min(100, Math.round(task.progress * 100)));
+    const statusLabel = task.status === "Done" ? "Processed" : task.status || "Queued";
+    const pathId = `task-path-${task.id}`;
     main.innerHTML = `
       <div class="queue-file-header">
         <div>
           <div class="file-name">${escapeHtml(task.name)}</div>
-          <div class="file-path">${escapeHtml(task.path)}</div>
         </div>
       </div>
       <div class="queue-meta">
-        <span class="meta-chip">Mode: ${escapeHtml(task.mode || "—")}</span>
-        <span class="meta-chip status-chip">Status: ${escapeHtml(task.status)}</span>
-        <span class="meta-chip">Pages: ${task.pages ? `${task.done}/${task.pages}` : "—"}</span>
-        <span class="meta-chip">Progress: ${percent}%</span>
+        <span class="meta-chip">${escapeHtml(task.mode || "—")}</span>
+        <span class="meta-chip status-chip">${escapeHtml(statusLabel)}</span>
+        <span class="meta-chip">${task.pages ? `${task.done}/${task.pages} pages` : "—"}</span>
+        <span class="meta-chip">${task.status === "Done" ? "Processed" : `${percent}%`}</span>
+      </div>
+      <div class="queue-file-path-row">
+        <button class="file-path-toggle ghost" type="button" aria-expanded="false" aria-controls="${pathId}">Show file path</button>
+        <a id="${pathId}" class="file-path hidden" href="${escapeHtml(encodeURI(task.path))}" title="${escapeHtml(task.path)}">${escapeHtml(task.path)}</a>
       </div>
     `;
 
-    const progressCell = document.createElement("div");
-    const progressBar = document.createElement("div");
-    progressBar.className = "progress-bar";
-    const progressInner = document.createElement("span");
-    progressInner.style.width = `${percent}%`;
-    progressBar.appendChild(progressInner);
-    progressCell.appendChild(progressBar);
-    main.appendChild(progressCell);
+    const pathToggle = main.querySelector(".file-path-toggle");
+    const pathLink = main.querySelector(".file-path");
+    if (pathToggle && pathLink) {
+      pathToggle.addEventListener("click", () => {
+        const expanded = pathToggle.getAttribute("aria-expanded") === "true";
+        pathToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+        pathToggle.textContent = expanded ? "Show file path" : "Hide file path";
+        pathLink.classList.toggle("hidden", expanded);
+      });
+    }
+
+    if (task.status !== "Done") {
+      const progressCell = document.createElement("div");
+      progressCell.className = "queue-progress-wrap";
+      const progressBar = document.createElement("div");
+      progressBar.className = "progress-bar";
+      const progressInner = document.createElement("span");
+      progressInner.style.width = `${percent}%`;
+      progressBar.appendChild(progressInner);
+      progressCell.appendChild(progressBar);
+      main.appendChild(progressCell);
+    }
 
     const actions = document.createElement("div");
     actions.className = "queue-actions";
+    const clearCacheButton = createIconButton(
+      "Clear generated Markdown and cached progress",
+      `
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h16"></path>
+          <path d="M10 11v5"></path>
+          <path d="M14 11v5"></path>
+          <path d="M6 7l1 12h10l1-12"></path>
+          <path d="M9 7V5h6v2"></path>
+        </svg>
+      `
+    );
+    clearCacheButton.disabled = state.isRunning;
+    clearCacheButton.addEventListener("click", async () => {
+      await clearTaskCache(task);
+    });
+
     const copyButton = createIconButton(
       "Copy generated Markdown",
       `
@@ -331,7 +367,7 @@ function renderQueue() {
     deleteButton.disabled = state.isRunning;
     deleteButton.addEventListener("click", () => removeTask(task.id));
 
-    actions.append(copyButton, compareButton, deleteButton);
+    actions.append(clearCacheButton, copyButton, compareButton, deleteButton);
 
     card.append(checkWrap, main, actions);
     elements.queueBody.appendChild(card);
@@ -549,6 +585,21 @@ async function copyTaskMarkdown(task) {
     appendLog(`Copied Markdown for ${task.name}.`);
   } catch (error) {
     appendLog(`Failed to copy Markdown for ${task.name}: ${error.message}`);
+  }
+}
+
+async function clearTaskCache(task) {
+  try {
+    await window.slidescribe.clearCache(task.path);
+    updateTask(task.id, {
+      status: "Queued",
+      pages: 0,
+      done: 0,
+      progress: 0
+    });
+    appendLog(`Cleared cached Markdown and progress for ${task.name}.`);
+  } catch (error) {
+    appendLog(`Failed to clear cache for ${task.name}: ${error.message}`);
   }
 }
 

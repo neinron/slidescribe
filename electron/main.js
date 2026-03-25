@@ -106,6 +106,16 @@ function saveSession(session) {
   return next;
 }
 
+function getMarkdownPathForPdf(pdfPath) {
+  return path.join(path.dirname(pdfPath), `${path.basename(pdfPath, path.extname(pdfPath))}_llm_description.md`);
+}
+
+function getProgressPathForPdf(pdfPath) {
+  const resolvedPath = path.resolve(String(pdfPath));
+  const pathHash = require("crypto").createHash("md5").update(resolvedPath).digest("hex").slice(0, 8);
+  return path.join(__dirname, "..", "pdf_converter_progress", `${path.basename(resolvedPath, path.extname(resolvedPath))}_${pathHash}_progress.json`);
+}
+
 function resolvePythonExecutable() {
   const candidates = [
     process.env.PDF_CONVERTER_PYTHON,
@@ -274,10 +284,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle("compare:load", async (_event, pdfPath) => {
     const resolvedPdfPath = path.resolve(String(pdfPath));
-    const markdownPath = path.join(
-      path.dirname(resolvedPdfPath),
-      `${path.basename(resolvedPdfPath, path.extname(resolvedPdfPath))}_llm_description.md`
-    );
+    const markdownPath = getMarkdownPathForPdf(resolvedPdfPath);
 
     const pdfBase64 = fs.readFileSync(resolvedPdfPath).toString("base64");
     const markdown = fs.existsSync(markdownPath) ? fs.readFileSync(markdownPath, "utf8") : "";
@@ -287,6 +294,25 @@ app.whenReady().then(() => {
       markdownPath,
       markdown,
       pdfBase64
+    };
+  });
+
+  ipcMain.handle("cache:clear", async (_event, pdfPath) => {
+    const resolvedPdfPath = path.resolve(String(pdfPath));
+    const markdownPath = getMarkdownPathForPdf(resolvedPdfPath);
+    const progressPath = getProgressPathForPdf(resolvedPdfPath);
+
+    if (fs.existsSync(markdownPath)) {
+      fs.rmSync(markdownPath, { force: true });
+    }
+    if (fs.existsSync(progressPath)) {
+      fs.rmSync(progressPath, { force: true });
+    }
+
+    return {
+      cleared: true,
+      markdownPath,
+      progressPath
     };
   });
 

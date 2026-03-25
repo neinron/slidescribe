@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("slidescribe", {
   saveSession: (session) => ipcRenderer.invoke("session:save", session),
   selectPdfs: () => ipcRenderer.invoke("dialog:select-pdfs"),
   loadCompareData: (pdfPath) => ipcRenderer.invoke("compare:load", pdfPath),
+  clearCache: (pdfPath) => ipcRenderer.invoke("cache:clear", pdfPath),
   startWorker: (payload) => ipcRenderer.invoke("worker:start", payload),
   stopWorker: () => ipcRenderer.invoke("worker:stop"),
   onWorkerEvent: (listener) => {

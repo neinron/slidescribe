@@ -7,6 +7,7 @@
   "main": "electron/main.js",
   "scripts": {
     "setup": "sh ./scripts/setup.sh",
+    "build:icon": "sh ./scripts/build-macos-icon.sh",
     "start": "node electron/start.js",
     "dev": "nodemon",
     "electron:package": "electron-forge package",
@@ -29,6 +30,9 @@
     ],
     "directories": {
       "output": "dist-electron"
+    },
+    "mac": {
+      "icon": "assets/icon.icns"
     }
   },
   "dependencies": {
