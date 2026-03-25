@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, nativeImage } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -16,12 +16,15 @@ const MODEL_OPTIONS = [
 
 const MODEL_IDS = new Set(MODEL_OPTIONS.map((option) => option.id));
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || "gemini-2.5-flash";
+const SYSTEM_PROMPT_VERSION = 1;
 
 const DEFAULT_SETTINGS = {
   mode: "parallel",
   model: DEFAULT_MODEL,
   maxMb: 0,
+  geminiApiKey: "",
   systemPrompt: "",
+  systemPromptVersion: SYSTEM_PROMPT_VERSION,
   theme: "dark",
   promptCollapsed: false
 };
@@ -63,6 +66,8 @@ function loadSettings() {
       ...merged,
       ...saved,
       model: savedModel,
+      geminiApiKey: typeof saved.geminiApiKey === "string" ? saved.geminiApiKey.trim() : "",
+      systemPromptVersion: SYSTEM_PROMPT_VERSION,
       systemPrompt: typeof saved.systemPrompt === "string" && saved.systemPrompt.trim() ? saved.systemPrompt : merged.systemPrompt
     };
   } catch {
@@ -83,22 +88,24 @@ function saveSettings(partialSettings) {
 function loadSession() {
   const sessionPath = getSessionPath();
   if (!fs.existsSync(sessionPath)) {
-    return { queue: [], logs: [] };
+    return { queue: [], processed: [], logs: [] };
   }
   try {
     const saved = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
     return {
       queue: Array.isArray(saved.queue) ? saved.queue : [],
+      processed: Array.isArray(saved.processed) ? saved.processed : [],
       logs: Array.isArray(saved.logs) ? saved.logs : []
     };
   } catch {
-    return { queue: [], logs: [] };
+    return { queue: [], processed: [], logs: [] };
   }
 }
 
 function saveSession(session) {
   const next = {
     queue: Array.isArray(session?.queue) ? session.queue : [],
+    processed: Array.isArray(session?.processed) ? session.processed : [],
     logs: Array.isArray(session?.logs) ? session.logs : []
   };
   fs.mkdirSync(path.dirname(getSessionPath()), { recursive: true });
@@ -190,6 +197,7 @@ async function startWorker(payload) {
     mode: settings.mode,
     model: MODEL_IDS.has(settings.model) ? settings.model : DEFAULT_SETTINGS.model,
     maxMb: Number(settings.maxMb || 0),
+    geminiApiKey: typeof settings.geminiApiKey === "string" ? settings.geminiApiKey.trim() : "",
     systemPrompt: settings.systemPrompt,
     tasks: payload.tasks
   };
@@ -314,6 +322,12 @@ app.whenReady().then(() => {
       markdownPath,
       progressPath
     };
+  });
+
+  ipcMain.handle("finder:show", async (_event, targetPath) => {
+    const resolvedPath = path.resolve(String(targetPath));
+    shell.showItemInFolder(resolvedPath);
+    return { shown: true, path: resolvedPath };
   });
 
   ipcMain.handle("worker:start", async (_event, payload) => startWorker(payload));

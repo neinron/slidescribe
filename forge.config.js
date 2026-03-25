@@ -3,7 +3,10 @@ const path = require("path");
 const APP_NAME = "SlideScribe";
 const APP_BUNDLE_ID = "com.jaronschurer.slidescribe";
 
-const extraResources = [path.resolve(__dirname, "backend")];
+const extraResources = [
+  path.resolve(__dirname, "backend"),
+  path.resolve(__dirname, "venv"),
+];
 
 const ignorePatterns = [
   /^\/\.git/,

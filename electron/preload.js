@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("slidescribe", {
   selectPdfs: () => ipcRenderer.invoke("dialog:select-pdfs"),
   loadCompareData: (pdfPath) => ipcRenderer.invoke("compare:load", pdfPath),
   clearCache: (pdfPath) => ipcRenderer.invoke("cache:clear", pdfPath),
+  showInFinder: (targetPath) => ipcRenderer.invoke("finder:show", targetPath),
   startWorker: (payload) => ipcRenderer.invoke("worker:start", payload),
   stopWorker: () => ipcRenderer.invoke("worker:stop"),
   onWorkerEvent: (listener) => {

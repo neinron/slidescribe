@@ -34,13 +34,15 @@
 
           <section class="panel controls-panel">
             <div class="panel-head">
-              <h2>Files And Run Settings</h2>
+              <h2>Run Settings</h2>
             </div>
-            <div class="button-row">
-              <button id="add-pdfs" class="primary">Add PDFs</button>
-              <button id="remove-selected" class="ghost">Remove Selected</button>
-              <button id="clear-queue" class="ghost danger">Clear Queue</button>
-            </div>
+            <label>
+              <span>Gemini API Key</span>
+              <div class="inline-field">
+                <input id="api-key" type="password" autocomplete="off" spellcheck="false" readonly />
+                <button id="edit-api-key" class="ghost" type="button">Edit</button>
+              </div>
+            </label>
             <label>
               <span>Mode</span>
               <select id="mode-select">
@@ -56,10 +58,6 @@
               <span>Max image budget in MB</span>
               <input id="max-mb" type="number" min="0" step="1" />
             </label>
-            <div class="button-row run-buttons">
-              <button id="start-run" class="primary wide">Start Conversion</button>
-              <button id="stop-run" class="ghost wide" disabled>Stop</button>
-            </div>
             <p class="hint">Markdown is saved next to each PDF. Resume metadata remains in <code>pdf_converter_progress/</code>.</p>
           </section>
         </aside>
@@ -81,9 +79,22 @@
           <section class="panel queue-panel">
             <div class="panel-head">
               <h2>Queued PDFs</h2>
-              <p id="selection-label" class="subtle">Every row includes copy, compare, and delete actions.</p>
+            </div>
+            <div class="button-row queue-toolbar">
+              <button id="add-pdfs" class="primary">Add PDFs</button>
+              <button id="clear-queue" class="ghost danger">Clear Queue</button>
+              <div class="queue-toolbar-spacer"></div>
+              <button id="start-run" class="primary">Process All Files</button>
+              <button id="stop-run" class="ghost" disabled>Stop</button>
             </div>
             <div id="queue-body" class="queue-list"></div>
+          </section>
+
+          <section class="panel queue-panel">
+            <div class="panel-head">
+              <h2>Processed PDFs</h2>
+            </div>
+            <div id="processed-body" class="queue-list"></div>
           </section>
 
           <section class="panel log-panel">

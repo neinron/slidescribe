@@ -26,6 +26,10 @@
       {
         "from": "backend",
         "to": "backend"
+      },
+      {
+        "from": "venv",
+        "to": "venv"
       }
     ],
     "directories": {

@@ -4,29 +4,32 @@ import { marked } from "../../node_modules/marked/lib/marked.esm.js";
 
 const state = {
   queue: [],
+  processed: [],
   settings: null,
   defaultPrompt: "",
+  isEditingApiKey: false,
   isRunning: false,
-  selectedIds: new Set(),
   compareOpen: false,
   logs: []
 };
 
 const elements = {
   addPdfs: document.getElementById("add-pdfs"),
-  removeSelected: document.getElementById("remove-selected"),
   clearQueue: document.getElementById("clear-queue"),
   startRun: document.getElementById("start-run"),
   stopRun: document.getElementById("stop-run"),
   modeSelect: document.getElementById("mode-select"),
   modelSelect: document.getElementById("model-select"),
   maxMb: document.getElementById("max-mb"),
+  apiKey: document.getElementById("api-key"),
+  editApiKey: document.getElementById("edit-api-key"),
   systemPrompt: document.getElementById("system-prompt"),
   resetPrompt: document.getElementById("reset-prompt"),
   togglePrompt: document.getElementById("toggle-prompt"),
   promptCard: document.getElementById("prompt-card"),
   promptBody: document.querySelector("#prompt-card .prompt-body"),
   queueBody: document.getElementById("queue-body"),
+  processedBody: document.getElementById("processed-body"),
   queueCount: document.getElementById("queue-count"),
   runState: document.getElementById("run-state"),
   logOutput: document.getElementById("log-output"),
@@ -180,6 +183,72 @@ function normalizeMatrixLatex(source) {
   );
 }
 
+function isMarkdownTableSeparator(line) {
+  return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+}
+
+function looksLikeTableRow(line) {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.includes("|", 1);
+}
+
+function protectMalformedTables(source) {
+  const lines = (source || "").split(/\r?\n/);
+  const protectedRanges = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!isMarkdownTableSeparator(lines[index])) {
+      continue;
+    }
+
+    let start = index - 1;
+    while (start >= 0 && lines[start].trim()) {
+      start -= 1;
+    }
+    start += 1;
+
+    let end = index + 1;
+    while (end < lines.length && lines[end].trim()) {
+      end += 1;
+    }
+
+    const blockLines = lines.slice(start, end);
+    const malformed = blockLines.some((line, blockIndex) => {
+      if (!line.trim()) {
+        return false;
+      }
+      if (start + blockIndex === index) {
+        return false;
+      }
+      return !looksLikeTableRow(line);
+    });
+
+    if (malformed) {
+      protectedRanges.push({ start, end });
+      index = end - 1;
+    }
+  }
+
+  if (!protectedRanges.length) {
+    return source || "";
+  }
+
+  const chunks = [];
+  let cursor = 0;
+  for (const range of protectedRanges) {
+    if (range.start > cursor) {
+      chunks.push(lines.slice(cursor, range.start).join("\n"));
+    }
+    chunks.push(`<pre class="markdown-card-fallback">${escapeHtml(lines.slice(range.start, range.end).join("\n"))}</pre>`);
+    cursor = range.end;
+  }
+  if (cursor < lines.length) {
+    chunks.push(lines.slice(cursor).join("\n"));
+  }
+
+  return chunks.join("\n\n");
+}
+
 function appendLog(message) {
   const timestamp = new Date().toLocaleTimeString();
   const line = `[${timestamp}] ${message}`;
@@ -198,12 +267,20 @@ function scheduleSettingsSave() {
     clearTimeout(saveTimer);
   }
   saveTimer = setTimeout(async () => {
-    if (!state.settings) {
-      return;
-    }
-    state.settings = collectSettings();
-    await window.slidescribe.saveSettings(state.settings);
+    await flushSettingsSave();
   }, 250);
+}
+
+async function flushSettingsSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (!state.settings) {
+    return;
+  }
+  state.settings = collectSettings();
+  await window.slidescribe.saveSettings(state.settings);
 }
 
 function scheduleSessionSave() {
@@ -213,6 +290,7 @@ function scheduleSessionSave() {
   sessionSaveTimer = setTimeout(async () => {
     await window.slidescribe.saveSession({
       queue: state.queue,
+      processed: state.processed,
       logs: state.logs
     });
   }, 250);
@@ -223,73 +301,141 @@ function collectSettings() {
     mode: elements.modeSelect.value,
     model: elements.modelSelect.value,
     maxMb: Number(elements.maxMb.value || 0),
+    geminiApiKey: elements.apiKey.value.trim(),
     systemPrompt: elements.systemPrompt.value,
     theme: document.body.dataset.theme || "dark",
     promptCollapsed: elements.promptCard.dataset.collapsed === "true"
   };
 }
 
-function renderQueue() {
-  elements.queueBody.innerHTML = "";
-  if (state.queue.length === 0) {
-    elements.queueBody.innerHTML = `
+function setApiKeyEditing(isEditing) {
+  state.isEditingApiKey = isEditing;
+  elements.apiKey.readOnly = !isEditing;
+  elements.apiKey.type = isEditing ? "text" : "password";
+  elements.editApiKey.textContent = isEditing ? "Done" : "Edit";
+  if (isEditing) {
+    elements.apiKey.focus();
+    elements.apiKey.setSelectionRange(elements.apiKey.value.length, elements.apiKey.value.length);
+  } else {
+    elements.apiKey.blur();
+  }
+}
+
+function isTaskActive(task) {
+  return task.status === "Preparing" || task.status === "Running";
+}
+
+function resetTaskForProcessing(task) {
+  task.mode = state.settings?.mode || "";
+  task.status = "Queued";
+  task.pages = 0;
+  task.done = 0;
+  task.progress = 0;
+}
+
+async function startTasks(tasks, label) {
+  if (!tasks.length || state.isRunning) {
+    return;
+  }
+
+  state.settings = collectSettings();
+  if (!state.settings.systemPrompt.trim()) {
+    appendLog("System prompt cannot be empty.");
+    return;
+  }
+
+  for (const task of tasks) {
+    resetTaskForProcessing(task);
+  }
+
+  renderQueue();
+  updateRunState("Launching");
+  appendLog(`${label} with model ${state.settings.model}.`);
+
+  try {
+    await window.slidescribe.startWorker({
+      settings: state.settings,
+      tasks: tasks.map((task) => ({ id: task.id, path: task.path }))
+    });
+  } catch (error) {
+    state.isRunning = false;
+    updateRunState("Error");
+    appendLog(`Start failed: ${error.message}`);
+    renderQueue();
+  }
+}
+
+async function processSingleTask(task, fromProcessed = false) {
+  if (state.isRunning) {
+    return;
+  }
+
+  let targetTask = task;
+  if (fromProcessed) {
+    const existingQueuedTask = state.queue.find((entry) => entry.path === task.path);
+    if (existingQueuedTask) {
+      targetTask = existingQueuedTask;
+    } else {
+      targetTask = createTask(task.path);
+      targetTask.name = task.name;
+      state.queue.push(targetTask);
+      state.processed = state.processed.filter((entry) => entry.id !== task.id);
+    }
+  }
+
+  await startTasks([targetTask], `Launching ${targetTask.name}`);
+}
+
+async function stopSingleTask(task) {
+  if (!state.isRunning || !isTaskActive(task)) {
+    return;
+  }
+  await window.slidescribe.stopWorker();
+  appendLog(`Stop requested for ${task.name}.`);
+}
+
+function renderTaskList(tasks, container, options = {}) {
+  const isProcessedList = Boolean(options.processed);
+  container.innerHTML = "";
+  if (tasks.length === 0) {
+    container.innerHTML = `
       <div class="empty-state">
-        Add one or more PDFs to start a run. Finished files can be compared page by page against their generated Markdown here.
+        ${isProcessedList
+          ? "Processed files will appear here after conversion finishes."
+          : "Add one or more PDFs to start a run. Finished files can be compared page by page against their generated Markdown here."}
       </div>
     `;
   }
 
-  for (const task of state.queue) {
+  for (const task of tasks) {
     const card = document.createElement("article");
-    card.className = `queue-item${state.selectedIds.has(task.id) ? " selected" : ""}`;
-
-    const checkWrap = document.createElement("div");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = state.selectedIds.has(task.id);
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) {
-        state.selectedIds.add(task.id);
-      } else {
-        state.selectedIds.delete(task.id);
-      }
-      renderQueue();
-    });
-    checkWrap.appendChild(checkbox);
+    card.className = "queue-item";
 
     const main = document.createElement("div");
     main.className = "queue-main";
     const percent = Math.max(0, Math.min(100, Math.round(task.progress * 100)));
     const statusLabel = task.status === "Done" ? "Processed" : task.status || "Queued";
+    const metaItems = [task.mode || "—", statusLabel];
+    if (task.pages) {
+      metaItems.push(`${task.done}/${task.pages} pages`);
+    }
+    if (task.status !== "Done") {
+      metaItems.push(`${percent}%`);
+    }
+    const processButtonLabel = isProcessedList ? "Reprocess file" : "Process file";
     const pathId = `task-path-${task.id}`;
     main.innerHTML = `
       <div class="queue-file-header">
-        <div>
+        <div class="queue-file-summary">
           <div class="file-name">${escapeHtml(task.name)}</div>
+          <div class="queue-meta">
+            ${metaItems
+              .map((item, index) => `<span class="meta-chip${index === 1 ? " status-chip" : ""}">${escapeHtml(item)}</span>`)
+              .join('<span class="meta-separator">•</span>')}
+          </div>
         </div>
       </div>
-      <div class="queue-meta">
-        <span class="meta-chip">${escapeHtml(task.mode || "—")}</span>
-        <span class="meta-chip status-chip">${escapeHtml(statusLabel)}</span>
-        <span class="meta-chip">${task.pages ? `${task.done}/${task.pages} pages` : "—"}</span>
-        <span class="meta-chip">${task.status === "Done" ? "Processed" : `${percent}%`}</span>
-      </div>
-      <div class="queue-file-path-row">
-        <button class="file-path-toggle ghost" type="button" aria-expanded="false" aria-controls="${pathId}">Show file path</button>
-        <a id="${pathId}" class="file-path hidden" href="${escapeHtml(encodeURI(task.path))}" title="${escapeHtml(task.path)}">${escapeHtml(task.path)}</a>
-      </div>
     `;
-
-    const pathToggle = main.querySelector(".file-path-toggle");
-    const pathLink = main.querySelector(".file-path");
-    if (pathToggle && pathLink) {
-      pathToggle.addEventListener("click", () => {
-        const expanded = pathToggle.getAttribute("aria-expanded") === "true";
-        pathToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
-        pathToggle.textContent = expanded ? "Show file path" : "Hide file path";
-        pathLink.classList.toggle("hidden", expanded);
-      });
-    }
 
     if (task.status !== "Done") {
       const progressCell = document.createElement("div");
@@ -305,19 +451,50 @@ function renderQueue() {
 
     const actions = document.createElement("div");
     actions.className = "queue-actions";
+    const processButton = document.createElement("button");
+    processButton.type = "button";
+    processButton.className = "ghost inline-action";
+    processButton.textContent = isTaskActive(task) ? "Running" : "Process";
+    processButton.disabled = state.isRunning || isTaskActive(task);
+    processButton.title = processButtonLabel;
+    processButton.addEventListener("click", async () => {
+      await processSingleTask(task, isProcessedList);
+    });
+
+    const stopButton = document.createElement("button");
+    stopButton.type = "button";
+    stopButton.className = "ghost inline-action";
+    stopButton.textContent = "Stop";
+    stopButton.disabled = !isTaskActive(task);
+    stopButton.title = "Stop file";
+    stopButton.addEventListener("click", async () => {
+      await stopSingleTask(task);
+    });
+
+    const pathToggle = createIconButton(
+      "Show file path",
+      `
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z"></path>
+        </svg>
+      `
+    );
+    pathToggle.setAttribute("aria-expanded", "false");
+    pathToggle.setAttribute("aria-controls", pathId);
+
     const clearCacheButton = createIconButton(
       "Clear generated Markdown and cached progress",
       `
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 7h16"></path>
-          <path d="M10 11v5"></path>
-          <path d="M14 11v5"></path>
-          <path d="M6 7l1 12h10l1-12"></path>
-          <path d="M9 7V5h6v2"></path>
+          <path d="M12 3v4"></path>
+          <path d="M7 5h10"></path>
+          <path d="M5 9h14"></path>
+          <path d="M6 9l1 10h10l1-10"></path>
+          <path d="M10 13h4"></path>
         </svg>
       `
     );
-    clearCacheButton.disabled = state.isRunning;
+    clearCacheButton.disabled = state.isRunning && !isProcessedList;
     clearCacheButton.addEventListener("click", async () => {
       await clearTaskCache(task);
     });
@@ -333,7 +510,7 @@ function renderQueue() {
     );
     copyButton.disabled = task.status !== "Done";
     copyButton.addEventListener("click", async () => {
-      await copyTaskMarkdown(task);
+      await copyTaskMarkdown(task, copyButton);
     });
 
     const compareButton = createIconButton(
@@ -352,7 +529,7 @@ function renderQueue() {
     compareButton.addEventListener("click", () => openCompareModal(task));
 
     const deleteButton = createIconButton(
-      "Delete file from queue",
+      isProcessedList ? "Remove file from processed list" : "Delete file from queue",
       `
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 6h18"></path>
@@ -364,17 +541,44 @@ function renderQueue() {
       `,
       "danger"
     );
-    deleteButton.disabled = state.isRunning;
-    deleteButton.addEventListener("click", () => removeTask(task.id));
+    deleteButton.disabled = !isProcessedList && isTaskActive(task);
+    deleteButton.addEventListener("click", () => removeTask(task.id, isProcessedList));
 
-    actions.append(clearCacheButton, copyButton, compareButton, deleteButton);
+    actions.append(processButton, stopButton, pathToggle, clearCacheButton, copyButton, compareButton, deleteButton);
+    main.querySelector(".queue-file-header").appendChild(actions);
 
-    card.append(checkWrap, main, actions);
-    elements.queueBody.appendChild(card);
+    card.append(main);
+
+    const pathRow = document.createElement("div");
+    pathRow.className = "queue-file-path-row";
+    pathRow.innerHTML = `
+      <a id="${pathId}" class="file-path hidden" href="#" title="Show in Finder">${escapeHtml(task.path)}</a>
+    `;
+    const pathLink = pathRow.querySelector(".file-path");
+    pathToggle.addEventListener("click", () => {
+      const expanded = pathToggle.getAttribute("aria-expanded") === "true";
+      pathToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+      pathToggle.title = expanded ? "Show file path" : "Hide file path";
+      pathLink.classList.toggle("hidden", expanded);
+    });
+    pathLink.addEventListener("click", async (event) => {
+      event.preventDefault();
+      try {
+        await window.slidescribe.showInFinder(task.path);
+      } catch (error) {
+        appendLog(`Failed to show ${task.name} in Finder: ${error.message}`);
+      }
+    });
+
+    main.appendChild(pathRow);
+    container.appendChild(card);
   }
+}
 
+function renderQueue() {
+  renderTaskList(state.queue, elements.queueBody);
+  renderTaskList(state.processed, elements.processedBody, { processed: true });
   elements.queueCount.textContent = `${state.queue.length} PDF${state.queue.length === 1 ? "" : "s"}`;
-  elements.removeSelected.disabled = state.selectedIds.size === 0 || state.isRunning;
   elements.clearQueue.disabled = state.queue.length === 0 || state.isRunning;
   elements.startRun.disabled = state.isRunning || state.queue.length === 0;
   elements.stopRun.disabled = !state.isRunning;
@@ -390,9 +594,51 @@ function createIconButton(label, svg, extraClass = "") {
   return button;
 }
 
-function removeTask(taskId) {
+function flashSuccessIcon(button, label) {
+  if (!button) {
+    return;
+  }
+
+  const originalMarkup = button.innerHTML;
+  const originalLabel = button.getAttribute("aria-label") || label;
+  const originalTitle = button.title || label;
+
+  if (button._successFlashTimer) {
+    clearTimeout(button._successFlashTimer);
+  }
+
+  button.setAttribute("aria-label", `${label} copied`);
+  button.title = `${label} copied`;
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12.5l4.2 4.2L19 7"></path>
+    </svg>
+  `;
+
+  button._successFlashTimer = setTimeout(() => {
+    button.innerHTML = originalMarkup;
+    button.setAttribute("aria-label", originalLabel);
+    button.title = originalTitle;
+    button._successFlashTimer = null;
+  }, 1200);
+}
+
+function removeTask(taskId, fromProcessed = false) {
+  if (fromProcessed) {
+    state.processed = state.processed.filter((task) => task.id !== taskId);
+  } else {
+    state.queue = state.queue.filter((task) => task.id !== taskId);
+  }
+  renderQueue();
+  scheduleSessionSave();
+}
+
+function removeCompletedTask(taskId) {
+  const task = state.queue.find((entry) => entry.id === taskId);
+  if (task) {
+    state.processed.unshift({ ...task, status: "Done", progress: 1 });
+  }
   state.queue = state.queue.filter((task) => task.id !== taskId);
-  state.selectedIds.delete(taskId);
   renderQueue();
   scheduleSessionSave();
 }
@@ -417,6 +663,11 @@ function attachWorkerEvents() {
         renderQueue();
         break;
       case "task_update":
+        if (event.status === "Done") {
+          appendLog(`${lookupTaskName(event.taskId)} processed and removed from the queue.`);
+          removeCompletedTask(event.taskId);
+          break;
+        }
         updateTask(event.taskId, {
           status: event.status || "Running",
           pages: event.pages || 0,
@@ -463,7 +714,7 @@ function attachWorkerEvents() {
 }
 
 function lookupTaskName(taskId) {
-  return state.queue.find((task) => task.id === taskId)?.name || taskId;
+  return state.queue.find((task) => task.id === taskId)?.name || state.processed.find((task) => task.id === taskId)?.name || taskId;
 }
 
 function applyTheme(theme) {
@@ -478,6 +729,9 @@ function setPromptCollapsed(collapsed) {
   }
   elements.togglePrompt.textContent = collapsed ? "Show Prompt" : "Hide Prompt";
   elements.togglePrompt.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (!collapsed) {
+    requestAnimationFrame(() => autoGrowTextarea(elements.systemPrompt));
+  }
 }
 
 function autoGrowTextarea(textarea) {
@@ -512,7 +766,8 @@ function base64ToUint8Array(base64) {
 
 function renderMarkdown(markdown) {
   try {
-    return marked.parse(normalizeMatrixLatex(markdown || ""), { async: false });
+    const prepared = protectMalformedTables(normalizeMatrixLatex(markdown || ""));
+    return marked.parse(prepared, { async: false });
   } catch {
     return `<pre class="markdown-card-fallback">${escapeHtml(markdown || "")}</pre>`;
   }
@@ -573,7 +828,7 @@ async function openCompareModal(task) {
   }
 }
 
-async function copyTaskMarkdown(task) {
+async function copyTaskMarkdown(task, button = null) {
   try {
     const compareData = await window.slidescribe.loadCompareData(task.path);
     const markdown = compareData.markdown || "";
@@ -582,6 +837,7 @@ async function copyTaskMarkdown(task) {
       return;
     }
     await navigator.clipboard.writeText(markdown);
+    flashSuccessIcon(button, "Copy generated Markdown");
     appendLog(`Copied Markdown for ${task.name}.`);
   } catch (error) {
     appendLog(`Failed to copy Markdown for ${task.name}: ${error.message}`);
@@ -589,14 +845,29 @@ async function copyTaskMarkdown(task) {
 }
 
 async function clearTaskCache(task) {
+  const confirmed = window.confirm(`Clear generated Markdown and cached progress for "${task.name}"?`);
+  if (!confirmed) {
+    return;
+  }
+
   try {
     await window.slidescribe.clearCache(task.path);
-    updateTask(task.id, {
-      status: "Queued",
-      pages: 0,
-      done: 0,
-      progress: 0
-    });
+    const queuedTask = state.queue.find((entry) => entry.id === task.id);
+    if (queuedTask) {
+      updateTask(task.id, {
+        status: "Queued",
+        pages: 0,
+        done: 0,
+        progress: 0
+      });
+    } else {
+      state.processed = state.processed.filter((entry) => entry.id !== task.id);
+      const resetTask = createTask(task.path);
+      resetTask.name = task.name;
+      state.queue.push(resetTask);
+      renderQueue();
+      scheduleSessionSave();
+    }
     appendLog(`Cleared cached Markdown and progress for ${task.name}.`);
   } catch (error) {
     appendLog(`Failed to clear cache for ${task.name}: ${error.message}`);
@@ -618,8 +889,10 @@ async function initialize() {
   state.queue = Array.isArray(payload.session?.queue)
     ? payload.session.queue.map(sanitizeTask).filter(Boolean)
     : [];
+  state.processed = Array.isArray(payload.session?.processed)
+    ? payload.session.processed.map(sanitizeTask).filter(Boolean)
+    : [];
   state.logs = Array.isArray(payload.session?.logs) ? payload.session.logs : [];
-  state.selectedIds.clear();
 
   for (const option of payload.models) {
     const node = document.createElement("option");
@@ -631,8 +904,10 @@ async function initialize() {
   elements.modeSelect.value = state.settings.mode;
   elements.modelSelect.value = state.settings.model;
   elements.maxMb.value = state.settings.maxMb;
+  elements.apiKey.value = state.settings.geminiApiKey || "";
   elements.systemPrompt.value = state.settings.systemPrompt;
   setPromptCollapsed(Boolean(state.settings.promptCollapsed));
+  setApiKeyEditing(false);
   applyTheme(state.settings.theme || "dark");
   autoGrowTextarea(elements.systemPrompt);
   elements.logOutput.textContent = state.logs.join("\n");
@@ -669,54 +944,14 @@ function handleSelectedPaths(filePaths) {
   }
 }
 
-elements.removeSelected.addEventListener("click", () => {
-  state.queue = state.queue.filter((task) => !state.selectedIds.has(task.id));
-  state.selectedIds.clear();
-  renderQueue();
-  scheduleSessionSave();
-});
-
 elements.clearQueue.addEventListener("click", () => {
   state.queue = [];
-  state.selectedIds.clear();
   renderQueue();
   scheduleSessionSave();
 });
 
 elements.startRun.addEventListener("click", async () => {
-  if (state.queue.length === 0 || state.isRunning) {
-    return;
-  }
-
-  state.settings = collectSettings();
-  if (!state.settings.systemPrompt.trim()) {
-    appendLog("System prompt cannot be empty.");
-    return;
-  }
-
-  for (const task of state.queue) {
-    task.mode = state.settings.mode;
-    task.status = "Queued";
-    task.pages = 0;
-    task.done = 0;
-    task.progress = 0;
-  }
-
-  renderQueue();
-  updateRunState("Launching");
-  appendLog(`Launching ${state.queue.length} file(s) with model ${state.settings.model}.`);
-
-  try {
-    await window.slidescribe.startWorker({
-      settings: state.settings,
-      tasks: state.queue.map((task) => ({ id: task.id, path: task.path }))
-    });
-  } catch (error) {
-    state.isRunning = false;
-    updateRunState("Error");
-    appendLog(`Start failed: ${error.message}`);
-    renderQueue();
-  }
+  await startTasks(state.queue, `Launching ${state.queue.length} file(s)`);
 });
 
 elements.stopRun.addEventListener("click", async () => {
@@ -728,6 +963,16 @@ elements.resetPrompt.addEventListener("click", async () => {
   elements.systemPrompt.value = state.defaultPrompt;
   autoGrowTextarea(elements.systemPrompt);
   scheduleSettingsSave();
+});
+
+elements.editApiKey.addEventListener("click", async () => {
+  if (state.isEditingApiKey) {
+    setApiKeyEditing(false);
+    await flushSettingsSave();
+    appendLog("Saved Gemini API key.");
+    return;
+  }
+  setApiKeyEditing(true);
 });
 
 elements.togglePrompt.addEventListener("click", () => {
@@ -775,6 +1020,15 @@ elements.systemPrompt.addEventListener("input", () => {
   scheduleSettingsSave();
 });
 
+elements.apiKey.addEventListener("input", scheduleSettingsSave);
+elements.apiKey.addEventListener("blur", async () => {
+  if (!state.isEditingApiKey) {
+    return;
+  }
+  setApiKeyEditing(false);
+  await flushSettingsSave();
+});
+
 for (const element of [elements.modeSelect, elements.modelSelect, elements.maxMb]) {
   element.addEventListener("input", scheduleSettingsSave);
   element.addEventListener("change", scheduleSettingsSave);
@@ -790,6 +1044,7 @@ window.addEventListener("beforeunload", () => {
   if (removeWorkerListener) {
     removeWorkerListener();
   }
+  void flushSettingsSave();
 });
 
 initialize();

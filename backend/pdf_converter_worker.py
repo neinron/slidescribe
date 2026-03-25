@@ -38,7 +38,7 @@ API_MIN_INTERVAL_SEC = max(0.0, float(os.getenv("API_MIN_INTERVAL_SEC", "0.15"))
 IMAGE_DPI = max(72, int(os.getenv("IMAGE_DPI", "110")))
 PER_FILE_IN_FLIGHT = max(1, int(os.getenv("PER_FILE_IN_FLIGHT", "4")))
 MAX_RAW_TEXT_TOKENS = max(0, int(os.getenv("MAX_RAW_TEXT_TOKENS", "1200")))
-MAX_OUTPUT_TOKENS = max(400, int(os.getenv("MAX_OUTPUT_TOKENS", "1400")))
+MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "0"))
 MAX_CONTINUATION_ROUNDS = max(1, int(os.getenv("MAX_CONTINUATION_ROUNDS", "4")))
 SAVE_EVERY_PAGES = max(1, int(os.getenv("SAVE_EVERY_PAGES", "3")))
 MAX_WORKERS = os.cpu_count() or 4
@@ -53,11 +53,13 @@ def emit(event_type: str, **payload: Any) -> None:
     print(json.dumps(message, ensure_ascii=False), flush=True)
 
 
-def load_clients() -> dict[str, AsyncOpenAI]:
+def load_clients(config: dict[str, Any]) -> dict[str, AsyncOpenAI]:
     load_dotenv()
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
+    gemini_key = str(config.get("geminiApiKey") or "").strip()
+    if not gemini_key:
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
     if not gemini_key or "Wait" in gemini_key:
-        raise RuntimeError("No valid Gemini API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY in .env.")
+        raise RuntimeError("No valid Gemini API key found. Set it in the app or via GEMINI_API_KEY / GOOGLE_API_KEY in .env.")
 
     return {
         "gemini": AsyncOpenAI(
@@ -213,12 +215,17 @@ async def describe_slide_async(
     errors = 0
     while True:
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=msgs,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                timeout=120,
+            request_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": msgs,
+                "timeout": 120,
                 **build_provider_request_kwargs("gemini"),
+            }
+            if MAX_OUTPUT_TOKENS > 0:
+                request_kwargs["max_tokens"] = MAX_OUTPUT_TOKENS
+
+            response = await client.chat.completions.create(
+                **request_kwargs,
             )
             choice = response.choices[0]
             message = choice.message
@@ -245,7 +252,7 @@ async def describe_slide_async(
                     level="warn",
                     message=(
                         f"Reached continuation limit for page {page_number}; "
-                        "saving partial output. Increase MAX_OUTPUT_TOKENS or MAX_CONTINUATION_ROUNDS if needed."
+                        "saving partial output. Increase MAX_CONTINUATION_ROUNDS if needed."
                     ),
                 )
                 return "\n".join(part.rstrip() for part in assembled_parts if part.strip()).strip()
@@ -552,7 +559,7 @@ async def async_main() -> int:
     if not system_prompt:
         raise RuntimeError("System prompt cannot be empty.")
 
-    clients = load_clients()
+    clients = load_clients(config)
     app = WorkerApp(clients, system_prompt)
 
     loop = asyncio.get_running_loop()

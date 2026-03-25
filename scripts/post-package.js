@@ -176,7 +176,16 @@ async function signMovedAppIfNeeded(forgeConfig, appPath) {
     await codesign(targetPath);
   }
 
-  await codesign(appPath, APP_BUNDLE_ID);
+  try {
+    await codesign(appPath, APP_BUNDLE_ID);
+  } catch (error) {
+    const message = `${error?.stderr || error?.message || error}`;
+    if (message.includes("Operation not permitted")) {
+      console.warn(`Skipping final codesign for ${appPath}: ${message.trim()}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 module.exports = async function postPackage(forgeConfig, options) {
