@@ -113,14 +113,111 @@ function saveSession(session) {
   return next;
 }
 
-function getMarkdownPathForPdf(pdfPath) {
-  return path.join(path.dirname(pdfPath), `${path.basename(pdfPath, path.extname(pdfPath))}_llm_description.md`);
+function getOutputNamingInfo(pdfPath) {
+  const resolvedPdfPath = path.resolve(String(pdfPath));
+  const dir = path.dirname(resolvedPdfPath);
+  const stem = path.basename(resolvedPdfPath, path.extname(resolvedPdfPath));
+  const markdownBase = `${stem}_llm_description`;
+  const progressDir = path.join(__dirname, "..", "pdf_converter_progress");
+  const pathHash = require("crypto").createHash("md5").update(resolvedPdfPath).digest("hex").slice(0, 8);
+
+  const suffixes = new Set();
+  const markdownSuffixes = new Set();
+  const markdownPattern = new RegExp(`^${markdownBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-(\\d+))?\\.md$`);
+
+  if (fs.existsSync(dir)) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      const match = entry.name.match(markdownPattern);
+      if (match) {
+        const parsed = match[1] ? Number.parseInt(match[1], 10) : 0;
+        suffixes.add(parsed);
+        markdownSuffixes.add(parsed);
+      }
+    }
+  }
+
+  const progressPrefix = `${stem}_${pathHash}`;
+  const progressSuffixes = new Set();
+  const progressPattern = new RegExp(`^${progressPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-(\\d+))?_progress\\.json$`);
+  if (fs.existsSync(progressDir)) {
+    for (const entry of fs.readdirSync(progressDir, { withFileTypes: true })) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      const match = entry.name.match(progressPattern);
+      if (match) {
+        const parsed = match[1] ? Number.parseInt(match[1], 10) : 0;
+        suffixes.add(parsed);
+        progressSuffixes.add(parsed);
+      }
+    }
+  }
+
+  const sortedSuffixes = Array.from(suffixes).sort((a, b) => a - b);
+  const highestSuffix = sortedSuffixes[sortedSuffixes.length - 1] ?? 0;
+  const sortedMarkdownSuffixes = Array.from(markdownSuffixes).sort((a, b) => a - b);
+  const highestMarkdownSuffix = sortedMarkdownSuffixes[sortedMarkdownSuffixes.length - 1] ?? 0;
+
+  return {
+    resolvedPdfPath,
+    stem,
+    pathHash,
+    markdownBase,
+    progressDir,
+    highestSuffix,
+    highestMarkdownSuffix,
+    hasExistingOutputs: suffixes.size > 0,
+    hasExistingMarkdown: markdownSuffixes.size > 0,
+    hasExistingProgress: progressSuffixes.size > 0,
+  };
 }
 
-function getProgressPathForPdf(pdfPath) {
-  const resolvedPath = path.resolve(String(pdfPath));
-  const pathHash = require("crypto").createHash("md5").update(resolvedPath).digest("hex").slice(0, 8);
-  return path.join(__dirname, "..", "pdf_converter_progress", `${path.basename(resolvedPath, path.extname(resolvedPath))}_${pathHash}_progress.json`);
+function getMarkdownPathForPdf(pdfPath, variant = "latest") {
+  const info = getOutputNamingInfo(pdfPath);
+  const suffix = variant === "next"
+    ? (info.hasExistingOutputs ? info.highestSuffix + 1 : 0)
+    : variant === "base"
+      ? 0
+      : (info.hasExistingMarkdown ? info.highestMarkdownSuffix : info.highestSuffix);
+  return path.join(
+    path.dirname(info.resolvedPdfPath),
+    `${info.markdownBase}${suffix > 0 ? `-${suffix}` : ""}.md`
+  );
+}
+
+function getProgressPathForPdf(pdfPath, variant = "latest") {
+  const info = getOutputNamingInfo(pdfPath);
+  const suffix = variant === "next"
+    ? (info.hasExistingOutputs ? info.highestSuffix + 1 : 0)
+    : variant === "base"
+      ? 0
+      : info.highestSuffix;
+  return path.join(
+    info.progressDir,
+    `${info.stem}_${info.pathHash}${suffix > 0 ? `-${suffix}` : ""}_progress.json`
+  );
+}
+
+function clearGeneratedOutputsForPdf(pdfPath) {
+  const info = getOutputNamingInfo(pdfPath);
+  const progressPattern = new RegExp(`^${`${info.stem}_${info.pathHash}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-\\d+)?_progress\\.json$`);
+  const clearedProgressPaths = [];
+
+  if (fs.existsSync(info.progressDir)) {
+    for (const entry of fs.readdirSync(info.progressDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !progressPattern.test(entry.name)) {
+        continue;
+      }
+      const target = path.join(info.progressDir, entry.name);
+      fs.rmSync(target, { force: true });
+      clearedProgressPaths.push(target);
+    }
+  }
+
+  return { clearedProgressPaths };
 }
 
 function resolvePythonExecutable() {
@@ -292,7 +389,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle("compare:load", async (_event, pdfPath) => {
     const resolvedPdfPath = path.resolve(String(pdfPath));
-    const markdownPath = getMarkdownPathForPdf(resolvedPdfPath);
+    const markdownPath = getMarkdownPathForPdf(resolvedPdfPath, "latest");
 
     const pdfBase64 = fs.readFileSync(resolvedPdfPath).toString("base64");
     const markdown = fs.existsSync(markdownPath) ? fs.readFileSync(markdownPath, "utf8") : "";
@@ -307,20 +404,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle("cache:clear", async (_event, pdfPath) => {
     const resolvedPdfPath = path.resolve(String(pdfPath));
-    const markdownPath = getMarkdownPathForPdf(resolvedPdfPath);
-    const progressPath = getProgressPathForPdf(resolvedPdfPath);
-
-    if (fs.existsSync(markdownPath)) {
-      fs.rmSync(markdownPath, { force: true });
-    }
-    if (fs.existsSync(progressPath)) {
-      fs.rmSync(progressPath, { force: true });
-    }
+    const { clearedProgressPaths } = clearGeneratedOutputsForPdf(resolvedPdfPath);
 
     return {
       cleared: true,
-      markdownPath,
-      progressPath
+      clearedProgressPaths
     };
   });
 

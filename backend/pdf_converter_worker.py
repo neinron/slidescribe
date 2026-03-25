@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import random
-import shutil
+import re
 import signal
 import sys
 import time
@@ -150,6 +150,41 @@ def strip_duplicate_page_header(markdown: str, page_number: int) -> str:
     if stripped.startswith(expected):
         return stripped[len(expected):].lstrip()
     return stripped
+
+
+def build_versioned_output_paths(pdf_path: Path) -> tuple[Path, Path]:
+    progress_dir = ROOT_DIR / "pdf_converter_progress"
+    progress_dir.mkdir(exist_ok=True)
+
+    path_hash = hashlib.md5(str(pdf_path.resolve()).encode("utf-8")).hexdigest()[:8]
+    markdown_base = f"{pdf_path.stem}_llm_description"
+    progress_base = f"{pdf_path.stem}_{path_hash}"
+
+    suffixes: set[int] = set()
+    markdown_pattern = re.compile(rf"^{re.escape(markdown_base)}(?:-(\d+))?\.md$")
+    for file in pdf_path.parent.iterdir():
+        if not file.is_file():
+            continue
+        match = markdown_pattern.match(file.name)
+        if match:
+            suffixes.add(int(match.group(1) or "0"))
+
+    progress_pattern = re.compile(rf"^{re.escape(progress_base)}(?:-(\d+))?_progress\.json$")
+    for file in progress_dir.iterdir():
+        if not file.is_file():
+            continue
+        match = progress_pattern.match(file.name)
+        if match:
+            suffixes.add(int(match.group(1) or "0"))
+
+    if suffixes:
+        next_suffix = max(suffixes) + 1
+        suffix_text = f"-{next_suffix}"
+    else:
+        suffix_text = ""
+    md_path = pdf_path.parent / f"{markdown_base}{suffix_text}.md"
+    json_path = progress_dir / f"{progress_base}{suffix_text}_progress.json"
+    return md_path, json_path
 
 
 def build_provider_request_kwargs(provider: str) -> dict[str, Any]:
@@ -347,37 +382,9 @@ class WorkerApp:
         with fitz.open(task.path) as doc:
             task.pages = len(doc)
 
-        progress_dir = ROOT_DIR / "pdf_converter_progress"
-        progress_dir.mkdir(exist_ok=True)
-        md_path = task.path.parent / f"{task.path.stem}_llm_description.md"
-        path_hash = hashlib.md5(str(task.path.resolve()).encode("utf-8")).hexdigest()[:8]
-        json_path = progress_dir / f"{task.path.stem}_{path_hash}_progress.json"
-
-        if not json_path.exists():
-            suffix = "_progress.json"
-            candidates: list[Path] = []
-            for file in progress_dir.iterdir():
-                if not file.name.endswith(suffix) or file.name == json_path.name:
-                    continue
-                base = file.name[: -len(suffix)]
-                candidate_stem, sep, candidate_hash = base.rpartition("_")
-                if sep == "_" and len(candidate_hash) == 8 and candidate_stem == task.path.stem:
-                    candidates.append(file)
-            if candidates:
-                candidates.sort(key=lambda file: file.stat().st_mtime, reverse=True)
-                shutil.copy(str(candidates[0]), str(json_path))
-                emit("log", level="info", message=f"Imported existing progress for {task.path.name}")
+        md_path, json_path = build_versioned_output_paths(task.path)
 
         descriptions: list[Optional[str]] = [None] * task.pages
-        if json_path.exists():
-            try:
-                raw = json.loads(json_path.read_text("utf-8"))
-                if isinstance(raw, list) and len(raw) == task.pages:
-                    descriptions = raw
-                    task.done = sum(1 for item in descriptions if item)
-            except Exception:
-                emit("log", level="warn", message=f"Failed to read progress file for {task.path.name}; starting fresh.")
-
         unsaved_pages = 0
 
         def save_progress(force: bool = False) -> None:

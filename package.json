@@ -11,7 +11,7 @@
     "start": "node electron/start.js",
     "dev": "nodemon",
     "electron:package": "electron-forge package",
-    "package": "electron-builder --dir",
+    "package": "node scripts/package.js",
     "dist": "electron-builder"
   },
   "build": {
